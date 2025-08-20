@@ -1,0 +1,36 @@
+#-----------------------------------------------------------
+# Vivado v2019.1 (64-bit)
+# SW Build 2552052 on Fri May 24 14:49:42 MDT 2019
+# IP Build 2548770 on Fri May 24 18:01:18 MDT 2019
+# Start of session at: Thu Apr 17 15:52:10 2025
+# Process ID: 17136
+# Current directory: M:/FPGA/communication
+# Command line: vivado.exe -gui_launcher_event rodinguilauncherevent18308 M:\FPGA\communication\communication.xpr
+# Log file: M:/FPGA/communication/vivado.log
+# Journal file: M:/FPGA/communication\vivado.jou
+#-----------------------------------------------------------
+start_gui
+exit
+INFO: [Common 17-206] Exiting Vivado at Thu Apr 17 15:52:40 2025...
+] Project file moved from 'C:/xilinx_projects/communication' since last save.
+ERROR: [Project 1-208] No val for DA Elab Attr
+ERROR: [Project 1-208] No val for DA Elab Attr
+ERROR: [Project 1-208] No val for DA Elab Attr
+ERROR: [Project 1-208] No val for DA Elab Attr
+ERROR: [Runs 36-378] The checkpoint 'M:/FPGA/communication/communication.srcs/utils_1/imports/synth_1/uart_rx.dcp' was created with 'Vivado v2024.2 (64-bit)', and cannot be opened in this version.
+open_project M:/FPGA/communication/communication.xpr
+INFO: [Project 1-313] Project file moved from 'C:/xilinx_projects/communication' since last save.
+ERROR: [Project 1-208] No val for DA Elab Attr
+ERROR: [Project 1-208] No val for DA Elab Attr
+ERROR: [Project 1-208] No val for DA Elab Attr
+ERROR: [Project 1-208] No val for DA Elab Attr
+ERROR: [Runs 36-378] The checkpoint 'M:/FPGA/communication/communication.srcs/utils_1/imports/synth_1/uart_rx.dcp' was created with 'Vivado v2024.2 (64-bit)', and cannot be opened in this version.
+open_project M:/FPGA/communication/communication.xpr
+INFO: [Project 1-313] Project file moved from 'C:/xilinx_projects/communication' since last save.
+ERROR: [Project 1-208] No val for DA Elab Attr
+ERROR: [Project 1-208] No val for DA Elab Attr
+ERROR: [Project 1-208] No val for DA Elab Attr
+ERROR: [Project 1-208] No val for DA Elab Attr
+ERROR: [Runs 36-378] The checkpoint 'M:/FPGA/communication/communication.srcs/utils_1/imports/synth_1/uart_rx.dcp' was created with 'Vivado v2024.2 (64-bit)', and cannot be opened in this version.
+exit
+INFO: [Common 17-206] Exiting Vivado at Thu Apr 17 15:53:39 2025...

@@ -1,0 +1,15 @@
+#-----------------------------------------------------------
+# Vivado v2019.1 (64-bit)
+# SW Build 2552052 on Fri May 24 14:49:42 MDT 2019
+# IP Build 2548770 on Fri May 24 18:01:18 MDT 2019
+# Start of session at: Thu Apr 17 15:52:10 2025
+# Process ID: 17136
+# Current directory: M:/FPGA/communication
+# Command line: vivado.exe -gui_launcher_event rodinguilauncherevent18308 M:\FPGA\communication\communication.xpr
+# Log file: M:/FPGA/communication/vivado.log
+# Journal file: M:/FPGA/communication\vivado.jou
+#-----------------------------------------------------------
+start_gui
+open_project M:/FPGA/communication/communication.xpr
+open_project M:/FPGA/communication/communication.xpr
+open_project M:/FPGA/communication/communication.xpr
