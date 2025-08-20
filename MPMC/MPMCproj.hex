@@ -1,0 +1,113 @@
+#include <reg51.h>
+
+sbit PIR = P2^0;        // PIR Sensor at P2.0
+sbit LED_Motion = P2^2; // LED for motion indication
+sbit DHT11 = P2^1;      // DHT11 at P2.1
+sbit LED_Light = P2^3;  // LED controlled by LDR data
+sbit FAN = P2^4;        // Fan controlled by temperature
+
+sbit ALE = P3^3;        // ADC ALE
+sbit START = P3^4;      // ADC Start
+sbit EOC = P3^5;        // ADC End of Conversion
+sbit OE = P3^6;         // ADC Output Enable
+
+unsigned char humidity, temperature;
+
+unsigned char readADC();        // Function to read from ADC
+void startDHT11();              // Function to send start signal to DHT11
+void readDHT11Data();           // Function to read data from DHT11
+void Delay(unsigned int time);  // General delay function
+
+void main() {
+    unsigned char lightLevel;
+
+    while (1) {
+        // 1. PIR Sensor for Motion Detection
+        if (PIR == 1) {          // Motion detected
+            LED_Motion = 1;      // Turn on Motion LED
+        } else {
+            LED_Motion = 0;      // Turn off Motion LED
+        }
+
+        // 2. Read DHT11 Temperature and Humidity
+        readDHT11Data();
+
+        // Control Fan based on Temperature
+        if (temperature > 25) {  // Set threshold for temperature here
+            FAN = 1;             // Turn on Fan if temperature exceeds threshold
+        } else {
+            FAN = 0;             // Turn off Fan if below threshold
+        }
+
+        // 3. Read LDR using ADC0809 and Control Light LED
+        lightLevel = readADC();
+        
+        if (lightLevel < 100) {  // Set threshold for light level here
+            LED_Light = 1;       // Turn on LED if light level is low
+        } else {
+            LED_Light = 0;       // Turn off LED if light level is high
+        }
+
+        Delay(50000);            // Small delay for system stability
+    }
+}
+
+unsigned char readADC() {
+    unsigned char value;
+    ALE = 1;             // Set ALE to start ADC process
+    START = 1;           // Start conversion
+    ALE = 0;
+    START = 0;
+    while (EOC == 1);    // Wait for End of Conversion
+    OE = 1;              // Enable output
+    value = P1;          // Read ADC value from LDR
+    OE = 0;
+    return value;
+}
+
+void startDHT11() {
+    DHT11 = 0;           // Pull DHT11 low
+    Delay(20000);        // Delay to send start signal
+    DHT11 = 1;           // Pull DHT11 high
+}
+
+void readDHT11Data() {
+    int I_RH, D_RH, I_Temp, D_Temp, CheckSum;
+
+    startDHT11();        // Send start signal
+    // Microcontroller waits for response from DHT11
+    while(DHT11 == 1);   
+    while(DHT11 == 0);   
+    while(DHT11 == 1);
+
+    // Receive data from DHT11
+    I_RH = receiveDHT11Byte();       // Integral Humidity
+    D_RH = receiveDHT11Byte();       // Decimal Humidity
+    I_Temp = receiveDHT11Byte();     // Integral Temperature
+    D_Temp = receiveDHT11Byte();     // Decimal Temperature
+    CheckSum = receiveDHT11Byte();   // Checksum
+
+    if ((I_RH + D_RH + I_Temp + D_Temp) == CheckSum) { // Verify checksum
+        humidity = I_RH;              // Set humidity
+        temperature = I_Temp;         // Set temperature
+    }
+}
+
+int receiveDHT11Byte() {
+    int i, result = 0;
+    for (i = 0; i < 8; i++) {
+        while (DHT11 == 0);           // Wait for bit start
+        Delay(30);                    // Delay to check bit value
+        if (DHT11 == 1) {             // If bit high
+            result = (result << 1) | 1;
+        } else {                      // If bit low
+            result = (result << 1);
+        }
+        while (DHT11 == 1);           // Wait for end of bit
+    }
+    return result;
+}
+
+void Delay(unsigned int time) {
+    while (time--);
+}

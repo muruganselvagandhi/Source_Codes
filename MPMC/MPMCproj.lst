@@ -1,0 +1,142 @@
+C51 COMPILER V9.60.7.0   MPMCPROJ                                                          11/04/2024 16:24:20 PAGE 1   
+
+
+C51 COMPILER V9.60.7.0, COMPILATION OF MODULE MPMCPROJ
+OBJECT MODULE PLACED IN .\Objects\MPMCproj.obj
+COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE MPMCproj.c OPTIMIZE(8,SPEED) BROWSE DEBUG OBJECTEXTEND PRINT(.\Listings\
+                    -MPMCproj.lst) TABS(2) OBJECT(.\Objects\MPMCproj.obj)
+
+line level    source
+
+   1          #include <reg51.h>
+   2          
+   3          sbit PIR = P3^0;        // PIR Sensor at P2.0
+   4          sbit LED_Motion = P3^2; // LED for motion indication
+   5          sbit DHT11 = P3^1;      // DHT11 at P2.1
+   6          sbit LED_Light = P3^3;  // LED controlled by LDR 
+   7          sbit FAN = P3^4;        // Fan controlled by temperature
+   8          
+   9          sbit ALE = P2^5;        // ADC ALE
+  10          sbit START = P2^4;      // ADC Start
+  11          sbit EOC = P3^5;        // ADC End of Conversion
+  12          sbit OE = P3^6;         // ADC Output Enable
+  13          
+  14          unsigned char humidity, temperature;
+  15          
+  16          unsigned char readADC();        // Function to read from ADC
+  17          void startDHT11();              // Function to send start signal to DHT11
+  18          void readDHT11Data();           // Function to read from DHT11
+  19          void Delay(unsigned int time);  // General delay function
+  20          
+  21          void main() {
+  22   1          unsigned char lightLevel;
+  23   1      
+  24   1          while (1) {
+  25   2              // 1. PIR Sensor for Motion Detection
+  26   2              if (PIR == 1) {          // Motion detected
+  27   3                  LED_Motion = 1;      // Turn on Motion LED
+  28   3              } else {
+  29   3                  LED_Motion = 0;      // Turn off Motion LED
+  30   3              }
+  31   2      
+  32   2              // 2. Read DHT11 Temperature and Humidity
+  33   2              readDHT11Data();
+  34   2      
+  35   2              // Control Fan based on Temperature
+  36   2              if (temperature > 25) {  // Set threshold for temperature here
+  37   3                  FAN = 1;             // Turn on Fan if temperature exceeds threshold
+  38   3              } else {
+  39   3                  FAN = 0;             // Turn off Fan if below threshold
+  40   3              }
+  41   2      
+  42   2              // 3. Read LDR using ADC0809 and Control Light LED
+  43   2              lightLevel = readADC();
+  44   2              
+  45   2              if (lightLevel < 100) {  // Set threshold for light level here
+  46   3                  LED_Light = 1;       // Turn on LED if light level is low
+  47   3              } else {
+  48   3                  LED_Light = 0;       // Turn off LED if light level is high
+  49   3              }
+  50   2      
+  51   2              Delay(50000);            // Small delay for system stability
+  52   2          }
+  53   1      }
+  54          
+C51 COMPILER V9.60.7.0   MPMCPROJ                                                          11/04/2024 16:24:20 PAGE 2   
+
+  55          unsigned char readADC() {
+  56   1          unsigned char value;
+  57   1          ALE = 1;             // Set ALE to start ADC process
+  58   1          START = 1;           // Start conversion
+  59   1          ALE = 0;
+  60   1          START = 0;
+  61   1          while (EOC == 1);    // Wait for End of Conversion
+  62   1          OE = 1;              // Enable output
+  63   1          value = P1;          // Read ADC value from LDR
+  64   1          OE = 0;
+  65   1          return value;
+  66   1      }
+  67          
+  68          void startDHT11() {
+  69   1          DHT11 = 0;           // Pull DHT11 low
+  70   1          Delay(20000);        // Delay to send start signal
+  71   1          DHT11 = 1;           // Pull DHT11 high
+  72   1      }
+  73          
+  74          void readDHT11Data() {
+  75   1          int I_RH, D_RH, I_Temp, D_Temp, CheckSum;
+  76   1      
+  77   1          startDHT11();        // Send start signal
+  78   1          // Microcontroller waits for response from DHT11
+  79   1          while(DHT11 == 1);   
+  80   1          while(DHT11 == 0);   
+  81   1          while(DHT11 == 1);
+  82   1      
+  83   1          // Receive data from DHT11
+  84   1          I_RH = receiveDHT11Byte();       // Integral Humidity
+*** WARNING C206 IN LINE 84 OF MPMCproj.c: 'receiveDHT11Byte': missing function-prototype
+  85   1          D_RH = receiveDHT11Byte();       // Decimal Humidity
+  86   1          I_Temp = receiveDHT11Byte();     // Integral Temperature
+  87   1          D_Temp = receiveDHT11Byte();     // Decimal Temperature
+  88   1          CheckSum = receiveDHT11Byte();   // Checksum
+  89   1      
+  90   1          if ((I_RH + D_RH + I_Temp + D_Temp) == CheckSum) { // Verify checksum
+  91   2              humidity = I_RH;              // Set humidity
+  92   2              temperature = I_Temp;         // Set temperature
+  93   2          }
+  94   1      }
+  95          
+  96          int receiveDHT11Byte() {
+  97   1          int i, result = 0;
+  98   1          for (i = 0; i < 8; i++) {
+  99   2              while (DHT11 == 0);           // Wait for bit start
+ 100   2              Delay(30);                    // Delay to check bit value
+ 101   2              if (DHT11 == 1) {             // If bit high
+ 102   3                  result = (result << 1) | 1;
+ 103   3              } else {                      // If bit low
+ 104   3                  result = (result << 1);
+ 105   3              }
+ 106   2              while (DHT11 == 1);           // Wait for end of bit
+ 107   2          }
+ 108   1          return result;
+ 109   1      }
+ 110          
+ 111          void Delay(unsigned int time) {
+ 112   1          while (time--);
+ 113   1      }
+
+
+C51 COMPILER V9.60.7.0   MPMCPROJ                                                          11/04/2024 16:24:20 PAGE 3   
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    247    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =      2      12
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  1 WARNING(S),  0 ERROR(S)
