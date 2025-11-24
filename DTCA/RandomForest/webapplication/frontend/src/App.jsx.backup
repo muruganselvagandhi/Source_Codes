@@ -1,0 +1,503 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area, ComposedChart, Line } from 'recharts';
+import { Wind, Zap, TrendingUp, LogOut, Gauge, Upload, Database, ChevronDown, Calendar, Filter, RotateCcw, AlertCircle, Send, Radio, Navigation } from 'lucide-react';
+import mqtt from 'mqtt';
+
+
+const predictPower = (ws) => ws < 3 || ws > 25 ? 0 : Math.max(0, Math.min(-0.5 * Math.pow(ws - 12, 2) + 3200, 3500));
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+
+const parseDate = (dateStr) => {
+  if (!dateStr) return null;
+  let d = new Date(dateStr);
+  if (!isNaN(d) && d.getFullYear() > 2000) return d;
+  const p = dateStr.trim().split(/[\s/:]+/);
+  if (p.length >= 4) {
+    const [day, month, year, hour, min] = [parseInt(p[0]), parseInt(p[1])-1, parseInt(p[2]), parseInt(p[3])||0, parseInt(p[4])||0];
+    if (year >= 2000 && month >= 0 && month <= 11 && day >= 1 && day <= 31) return new Date(year, month, day, hour, min);
+  }
+  return null;
+};
+
+
+const generateSampleData = () => {
+  const data = [];
+  for (let m = 0; m < 12; m++) {
+    for (let d = 1; d <= 28; d++) {
+      for (let h = 0; h < 24; h++) {
+        const bw = 6 + Math.sin(m/12*Math.PI*2)*3 + Math.sin(h/24*Math.PI*2)*2;
+        const ws = Math.max(0, bw + (Math.random()-0.5)*4);
+        data.push({ 'Date/Time': `${d} ${m+1} 2018 ${h}:00`, 'Wind Speed (m/s)': ws.toFixed(2), 'LV ActivePower (kW)': (predictPower(ws)*(0.8+Math.random()*0.4)).toFixed(2), _parsedDate: new Date(2018, m, d, h) });
+      }
+    }
+  }
+  return data;
+};
+
+
+const LoginPage = ({ onLogin }) => {
+  const [u, setU] = useState('');
+  const [p, setP] = useState('');
+  const [err, setErr] = useState('');
+  const [load, setLoad] = useState(false);
+  const submit = () => { setLoad(true); setErr(''); setTimeout(() => { if (u === 'admin' && p === 'password') onLogin(u); else setErr('Invalid credentials. Try admin/password'); setLoad(false); }, 800); };
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-purple-500/20 rounded-full blur-3xl animate-pulse" />
+        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-blue-500/20 rounded-full blur-3xl animate-pulse" style={{animationDelay:'1s'}} />
+      </div>
+      <div className="relative w-full max-w-md">
+        <div className="bg-white/10 backdrop-blur-xl rounded-3xl p-8 shadow-2xl border border-white/20">
+          <div className="text-center mb-8">
+            <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-cyan-400 to-purple-500 rounded-2xl mb-4 shadow-lg"><Wind className="w-8 h-8 text-white" /></div>
+            <h1 className="text-3xl font-bold text-white mb-2">Wind Farm Monitor</h1>
+            <p className="text-gray-400">Digital Twin Control Center</p>
+          </div>
+          <div className="space-y-5">
+            <div><label className="block text-sm font-medium text-gray-300 mb-2">Username</label><input type="text" value={u} onChange={(e) => setU(e.target.value)} className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-400" placeholder="Enter username" /></div>
+            <div><label className="block text-sm font-medium text-gray-300 mb-2">Password</label><input type="password" value={p} onChange={(e) => setP(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submit()} className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-400" placeholder="Enter password" /></div>
+            {err && <div className="bg-red-500/20 border border-red-500/50 text-red-300 px-4 py-3 rounded-xl text-sm">{err}</div>}
+            <button onClick={submit} disabled={load} className="w-full py-3 bg-gradient-to-r from-cyan-500 to-purple-500 text-white font-semibold rounded-xl hover:opacity-90 transition-all transform hover:scale-105 disabled:opacity-50 shadow-lg">{load ? 'Signing in...' : 'Sign In'}</button>
+          </div>
+          <p className="text-center text-gray-500 text-xs mt-6">Demo: admin / password</p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+
+const StatCard = ({ icon: Icon, title, value, unit, color }) => (
+  <div className="bg-white/5 backdrop-blur-sm rounded-2xl p-4 border border-white/10 hover:bg-white/10 transition-all">
+    <div className={`p-2 rounded-xl ${color} w-fit`}><Icon className="w-4 h-4 text-white" /></div>
+    <p className="text-gray-400 text-xs mt-3">{title}</p>
+    <p className="text-xl font-bold text-white mt-1">{value}<span className="text-xs text-gray-400 ml-1">{unit}</span></p>
+  </div>
+);
+
+
+const Dropdown = ({ label, value, options, onChange, disabled }) => (
+  <div className="relative">
+    <label className="block text-xs text-gray-400 mb-1">{label}</label>
+    <div className="relative">
+      <select value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled} className="w-full pl-3 pr-8 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-cyan-400 disabled:opacity-50">
+        {options.map(opt => <option key={opt.value} value={opt.value} className="bg-slate-800">{opt.label}</option>)}
+      </select>
+      <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+    </div>
+  </div>
+);
+
+
+const Dashboard = ({ user, onLogout }) => {
+  const [rawData, setRawData] = useState([]);
+  const [dataLoaded, setDataLoaded] = useState(false);
+  const [fileUploading, setFileUploading] = useState(false);
+  const [parseErrors, setParseErrors] = useState(0);
+  const [dataInfo, setDataInfo] = useState(null);
+  const [selectedMonth, setSelectedMonth] = useState('all');
+  const [selectedWeek, setSelectedWeek] = useState('all');
+  const [selectedDay, setSelectedDay] = useState('all');
+  const [viewMode, setViewMode] = useState('monthly');
+  const [windInput, setWindInput] = useState(7);
+  const [turbineCount, setTurbineCount] = useState(10);
+  const [areaSize, setAreaSize] = useState(500);
+  const [predictedPower, setPredictedPower] = useState(0);
+  
+  // HiveMQ Connection
+  const [mqttWindSpeed, setMqttWindSpeed] = useState(8);
+  const [mqttWindDirection, setMqttWindDirection] = useState(180);
+  const [mqttStatus, setMqttStatus] = useState('disconnected'); // disconnected, connecting, connected, sending, sent, error
+  const [lastSentData, setLastSentData] = useState(null);
+  const [mqttClient, setMqttClient] = useState(null);
+  const [connectionError, setConnectionError] = useState(null);
+  
+  const directionLabels = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  const getDirectionLabel = (deg) => directionLabels[Math.round(deg / 45) % 8];
+  
+  // HiveMQ Configuration
+  const MQTT_CONFIG = {
+    broker: 'wss://1bb52e5669a44705a46bedceffaee603.s1.eu.hivemq.cloud:8884/mqtt',
+    username: 'WindFarm',
+    password: 'Wind1234',
+    topic: 'windfarm/web'
+  };
+  
+  // Connect to HiveMQ
+  const connectMQTT = () => {
+    if (mqttClient && mqttClient.connected) return;
+    
+    setMqttStatus('connecting');
+    setConnectionError(null);
+    
+    try {
+      const client = mqtt.connect(MQTT_CONFIG.broker, {
+        username: MQTT_CONFIG.username,
+        password: MQTT_CONFIG.password,
+        protocol: 'wss',
+        reconnectPeriod: 5000,
+        connectTimeout: 10000,
+      });
+      
+      client.on('connect', () => {
+        setMqttStatus('connected');
+        setMqttClient(client);
+        setConnectionError(null);
+      });
+      
+      client.on('error', (err) => {
+        setMqttStatus('error');
+        setConnectionError(err.message || 'Connection failed');
+      });
+      
+      client.on('close', () => {
+        setMqttStatus('disconnected');
+      });
+      
+    } catch (err) {
+      setMqttStatus('error');
+      setConnectionError('Failed to load MQTT library');
+    }
+  };
+  
+  // Disconnect from HiveMQ
+  const disconnectMQTT = () => {
+    if (mqttClient) {
+      mqttClient.end();
+      setMqttClient(null);
+      setMqttStatus('disconnected');
+    }
+  };
+  
+  // Cleanup MQTT connection on unmount
+  useEffect(() => {
+    return () => {
+      if (mqttClient) {
+        mqttClient.end();
+      }
+    };
+  }, [mqttClient]);
+  
+  // Send data to HiveMQ
+  const sendToHiveMQ = () => {
+    if (!mqttClient || !mqttClient.connected) {
+      setConnectionError('Not connected to MQTT broker');
+      return;
+    }
+    
+    setMqttStatus('sending');
+    const payload = {
+      wind_speed: mqttWindSpeed,
+      wind_direction: mqttWindDirection,
+      direction_label: getDirectionLabel(mqttWindDirection),
+      timestamp: new Date().toISOString(),
+      predicted_power: Math.round(predictPower(mqttWindSpeed))
+    };
+    
+    mqttClient.publish(MQTT_CONFIG.topic, JSON.stringify(payload), { qos: 1 }, (err) => {
+      if (err) {
+        setMqttStatus('error');
+        setConnectionError('Failed to publish message');
+      } else {
+        setLastSentData(payload);
+        setMqttStatus('sent');
+        setTimeout(() => setMqttStatus('connected'), 2000);
+      }
+    });
+  };
+
+
+  useEffect(() => {
+    const sample = generateSampleData();
+    setRawData(sample);
+    setDataInfo({ startDate: 'Jan 1, 2018', endDate: 'Dec 28, 2018', totalRows: sample.length, year: 2018 });
+  }, []);
+
+
+  const resetFilters = () => { setSelectedMonth('all'); setSelectedWeek('all'); setSelectedDay('all'); setViewMode('monthly'); };
+
+
+  const availableDays = useMemo(() => {
+    if (selectedMonth === 'all') return [];
+    const days = new Set();
+    rawData.forEach(r => { if (r._parsedDate?.getMonth() === parseInt(selectedMonth)) days.add(r._parsedDate.getDate()); });
+    return Array.from(days).sort((a,b) => a - b);
+  }, [rawData, selectedMonth]);
+
+
+  const availableWeeks = useMemo(() => {
+    if (selectedMonth === 'all') return [];
+    const weeks = new Set();
+    rawData.forEach(r => { if (r._parsedDate?.getMonth() === parseInt(selectedMonth)) weeks.add(Math.ceil(r._parsedDate.getDate() / 7)); });
+    return Array.from(weeks).sort((a,b) => a - b);
+  }, [rawData, selectedMonth]);
+
+
+  const processedData = useMemo(() => {
+    const filtered = rawData.filter(r => {
+      const d = r._parsedDate;
+      if (!d) return false;
+      if (selectedMonth !== 'all' && d.getMonth() !== parseInt(selectedMonth)) return false;
+      if (selectedWeek !== 'all' && Math.ceil(d.getDate() / 7) !== parseInt(selectedWeek)) return false;
+      if (selectedDay !== 'all' && d.getDate() !== parseInt(selectedDay)) return false;
+      return true;
+    });
+    const avg = arr => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
+    
+    const monthlyMap = {}, weeklyMap = {}, dailyMap = {}, hourlyMap = {};
+    filtered.forEach(r => {
+      const d = r._parsedDate, pwr = parseFloat(r['LV ActivePower (kW)'])||0, wnd = parseFloat(r['Wind Speed (m/s)'])||0;
+      const mon = MONTHS[d.getMonth()], day = DAYS[d.getDay()], dt = d.getDate(), hr = d.getHours();
+      if (!monthlyMap[mon]) monthlyMap[mon] = { p: [], w: [] }; monthlyMap[mon].p.push(pwr); monthlyMap[mon].w.push(wnd);
+      if (!weeklyMap[day]) weeklyMap[day] = { p: [], w: [] }; weeklyMap[day].p.push(pwr); weeklyMap[day].w.push(wnd);
+      if (!dailyMap[dt]) dailyMap[dt] = { p: [], w: [] }; dailyMap[dt].p.push(pwr); dailyMap[dt].w.push(wnd);
+      if (!hourlyMap[hr]) hourlyMap[hr] = { p: [], w: [] }; hourlyMap[hr].p.push(pwr); hourlyMap[hr].w.push(wnd);
+    });
+    
+    const monthly = MONTHS.filter(m => monthlyMap[m]).map(m => ({ month: m, power: Math.round(avg(monthlyMap[m].p)), windSpeed: +avg(monthlyMap[m].w).toFixed(1), efficiency: Math.round((avg(monthlyMap[m].p)/3500)*100) }));
+    const weekly = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].filter(d => weeklyMap[d]).map(d => ({ day: d, power: Math.round(avg(weeklyMap[d].p)), windSpeed: +avg(weeklyMap[d].w).toFixed(1) }));
+    const daily = Object.keys(dailyMap).map(Number).sort((a,b)=>a-b).map(d => ({ date: `Day ${d}`, power: Math.round(avg(dailyMap[d].p)), windSpeed: +avg(dailyMap[d].w).toFixed(1) }));
+    const hourly = Array.from({length:24},(_,i)=>i).filter(h => hourlyMap[h]).map(h => ({ time: `${h.toString().padStart(2,'0')}:00`, power: Math.round(avg(hourlyMap[h].p)), windSpeed: +avg(hourlyMap[h].w).toFixed(1) }));
+    
+    const allP = filtered.map(r => parseFloat(r['LV ActivePower (kW)'])||0), allW = filtered.map(r => parseFloat(r['Wind Speed (m/s)'])||0);
+    return { monthly, weekly, daily, hourly, stats: { records: filtered.length, avgPower: Math.round(avg(allP)), avgWind: +avg(allW).toFixed(1), maxPower: allP.length ? Math.round(Math.max(...allP)) : 0 }};
+  }, [rawData, selectedMonth, selectedWeek, selectedDay]);
+
+
+  useEffect(() => {
+    const eff = Math.max(0.3, 1 - (turbineCount / areaSize) * 3);
+    setPredictedPower(Math.round(predictPower(windInput) * turbineCount * eff));
+  }, [windInput, turbineCount, areaSize]);
+
+
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setFileUploading(true); setParseErrors(0);
+    try {
+      const text = await file.text(), lines = text.split('\n'), headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+      let errCnt = 0, minD = null, maxD = null;
+      const data = lines.slice(1).filter(l => l.trim()).map(line => {
+        const vals = line.split(',').map(v => v.trim().replace(/"/g, '')), row = headers.reduce((o, h, i) => ({ ...o, [h]: vals[i] }), {});
+        const pd = parseDate(row['Date/Time']);
+        if (pd) { row._parsedDate = pd; if (!minD || pd < minD) minD = pd; if (!maxD || pd > maxD) maxD = pd; } else errCnt++;
+        return row;
+      }).filter(r => {
+        if (!r._parsedDate) return false;
+        const power = parseFloat(r['LV ActivePower (kW)']);
+        const wind = parseFloat(r['Wind Speed (m/s)']);
+        if (!power || power <= 0 || !wind || wind <= 0) { errCnt++; return false; }
+        return true;
+      });
+      setRawData(data); setDataLoaded(true); setParseErrors(errCnt);
+      if (minD && maxD) setDataInfo({ startDate: minD.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}), endDate: maxD.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}), totalRows: data.length, year: minD.getFullYear() });
+      resetFilters();
+    } catch (err) { console.error(err); }
+    setFileUploading(false);
+  };
+
+
+  const chartData = viewMode === 'monthly' ? processedData.monthly : viewMode === 'weekly' ? processedData.weekly : viewMode === 'daily' ? processedData.daily : processedData.hourly;
+  const chartKey = viewMode === 'monthly' ? 'month' : viewMode === 'weekly' ? 'day' : viewMode === 'daily' ? 'date' : 'time';
+  const { stats } = processedData;
+  const filterDesc = [dataInfo?.year, selectedMonth !== 'all' && MONTHS[parseInt(selectedMonth)], selectedWeek !== 'all' && `Week ${selectedWeek}`, selectedDay !== 'all' && `Day ${selectedDay}`].filter(Boolean).join(' → ') || 'All Data';
+  const isFiltered = selectedMonth !== 'all' || selectedWeek !== 'all' || selectedDay !== 'all';
+
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
+      <header className="bg-black/20 backdrop-blur-sm border-b border-white/10 sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-gradient-to-br from-cyan-400 to-purple-500 rounded-xl"><Wind className="w-5 h-5 text-white" /></div>
+            <div><h1 className="text-lg font-bold text-white">Wind Farm Monitor</h1><p className="text-xs text-gray-400">Digital Twin Dashboard</p></div>
+          </div>
+          <div className="flex items-center gap-3">
+            <label className={`flex items-center gap-2 px-3 py-1.5 rounded-lg cursor-pointer text-sm ${dataLoaded ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-white/5 text-gray-300 border border-white/10 hover:bg-white/10'}`}>
+              {fileUploading ? <span className="animate-spin">⟳</span> : <Upload className="w-4 h-4" />}
+              <span>{dataLoaded ? 'Kaggle Data ✓' : 'Upload T1.csv'}</span>
+              <input type="file" accept=".csv" onChange={handleFileUpload} className="hidden" />
+            </label>
+            <div className="w-8 h-8 bg-gradient-to-br from-cyan-400 to-purple-500 rounded-full flex items-center justify-center text-white font-medium text-sm">{user[0].toUpperCase()}</div>
+            <button onClick={onLogout} className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-lg"><LogOut className="w-4 h-4" /></button>
+          </div>
+        </div>
+      </header>
+
+
+      <main className="max-w-7xl mx-auto px-4 py-4 space-y-4">
+        {dataInfo && (
+          <div className="bg-cyan-500/10 border border-cyan-500/30 rounded-lg px-4 py-2 flex items-center justify-between">
+            <div className="flex items-center gap-2 text-sm">
+              <Database className="w-4 h-4 text-cyan-400" />
+              <span className="text-gray-300">Dataset: <span className="text-white font-medium">{dataInfo.totalRows.toLocaleString()} records</span></span>
+              <span className="text-gray-500">|</span>
+              <span className="text-gray-300">Period: <span className="text-white">{dataInfo.startDate} — {dataInfo.endDate}</span></span>
+            </div>
+            {parseErrors > 0 && <div className="flex items-center gap-1 text-yellow-400 text-xs"><AlertCircle className="w-3 h-3" /><span>{parseErrors.toLocaleString()} rows filtered (zero/invalid values)</span></div>}
+          </div>
+        )}
+
+
+        <div className="bg-white/5 backdrop-blur-sm rounded-xl p-4 border border-white/10">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Filter className="w-4 h-4 text-cyan-400" />
+              <span className="text-sm font-medium text-white">Data Filters</span>
+              <span className="text-xs text-gray-400 ml-2">→ {filterDesc}</span>
+            </div>
+            {isFiltered && <button onClick={resetFilters} className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-sm"><RotateCcw className="w-3.5 h-3.5" />Reset Filters</button>}
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <Dropdown label="Month" value={selectedMonth} options={[{value:'all',label:'All Months'}, ...MONTHS.map((m,i) => ({value:i.toString(),label:m}))]} onChange={(v) => { setSelectedMonth(v); setSelectedWeek('all'); setSelectedDay('all'); }} />
+            <Dropdown label="Week of Month" value={selectedWeek} options={[{value:'all',label:'All Weeks'}, ...availableWeeks.map(w => ({value:w.toString(),label:`Week ${w}`}))]} onChange={(v) => { setSelectedWeek(v); setSelectedDay('all'); }} disabled={selectedMonth === 'all'} />
+            <Dropdown label="Specific Day" value={selectedDay} options={[{value:'all',label:'All Days'}, ...availableDays.map(d => ({value:d.toString(),label:`Day ${d}`}))]} onChange={setSelectedDay} disabled={selectedMonth === 'all'} />
+            <Dropdown label="View Mode" value={viewMode} options={[{value:'monthly',label:'Monthly'},{value:'weekly',label:'By Day of Week'},{value:'daily',label:'By Date'},{value:'hourly',label:'Hourly'}]} onChange={setViewMode} />
+          </div>
+        </div>
+
+
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <StatCard icon={Database} title="Filtered Records" value={stats.records.toLocaleString()} unit="rows" color="bg-purple-500" />
+          <StatCard icon={Zap} title="Avg Power" value={stats.avgPower.toLocaleString()} unit="kW" color="bg-cyan-500" />
+          <StatCard icon={Wind} title="Avg Wind" value={stats.avgWind} unit="m/s" color="bg-blue-500" />
+          <StatCard icon={Gauge} title="Peak Power" value={stats.maxPower.toLocaleString()} unit="kW" color="bg-green-500" />
+        </div>
+
+
+        <div className="grid lg:grid-cols-3 gap-4">
+          <div className="lg:col-span-2 bg-white/5 backdrop-blur-sm rounded-xl p-4 border border-white/10">
+            <h2 className="text-sm font-semibold text-white mb-4">Power & Wind — {viewMode.charAt(0).toUpperCase() + viewMode.slice(1)} View</h2>
+            <ResponsiveContainer width="100%" height={260}>
+              <ComposedChart data={chartData}>
+                <defs><linearGradient id="pg" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#06b6d4" stopOpacity={0.8}/><stop offset="95%" stopColor="#06b6d4" stopOpacity={0.1}/></linearGradient></defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                <XAxis dataKey={chartKey} stroke="#9ca3af" fontSize={10} />
+                <YAxis yAxisId="left" stroke="#06b6d4" fontSize={10} />
+                <YAxis yAxisId="right" orientation="right" stroke="#a855f7" fontSize={10} />
+                <Tooltip contentStyle={{ backgroundColor: '#1f2937', border: 'none', borderRadius: '8px', color: '#fff', fontSize: '12px' }} />
+                <Legend wrapperStyle={{ fontSize: '11px' }} />
+                <Bar yAxisId="left" dataKey="power" fill="url(#pg)" name="Power (kW)" radius={[3,3,0,0]} />
+                <Line yAxisId="right" type="monotone" dataKey="windSpeed" stroke="#a855f7" strokeWidth={2} dot={false} name="Wind (m/s)" />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="bg-white/5 backdrop-blur-sm rounded-xl p-4 border border-white/10">
+            <h2 className="text-sm font-semibold text-white mb-4">Monthly Efficiency</h2>
+            <ResponsiveContainer width="100%" height={260}>
+              <AreaChart data={processedData.monthly}>
+                <defs><linearGradient id="eg" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#10b981" stopOpacity={0.8}/><stop offset="95%" stopColor="#10b981" stopOpacity={0.1}/></linearGradient></defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                <XAxis dataKey="month" stroke="#9ca3af" fontSize={10} />
+                <YAxis stroke="#9ca3af" fontSize={10} />
+                <Tooltip contentStyle={{ backgroundColor: '#1f2937', border: 'none', borderRadius: '8px', color: '#fff', fontSize: '12px' }} />
+                <Area type="monotone" dataKey="efficiency" stroke="#10b981" fill="url(#eg)" name="Efficiency %" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+
+        <div className="bg-gradient-to-r from-purple-500/10 to-cyan-500/10 backdrop-blur-sm rounded-xl p-4 border border-white/10">
+          <h2 className="text-sm font-semibold text-white mb-4 flex items-center gap-2"><TrendingUp className="w-4 h-4 text-cyan-400" />Power Prediction Simulator</h2>
+          <div className="grid md:grid-cols-4 gap-4">
+            <div><label className="block text-xs text-gray-400 mb-2">Wind Speed: <span className="text-cyan-400 font-medium">{windInput} m/s</span></label><input type="range" min="0" max="25" step="0.5" value={windInput} onChange={(e) => setWindInput(parseFloat(e.target.value))} className="w-full h-2 bg-white/10 rounded-full appearance-none cursor-pointer accent-cyan-500" /></div>
+            <div><label className="block text-xs text-gray-400 mb-2">Turbines: <span className="text-purple-400 font-medium">{turbineCount}</span></label><input type="range" min="1" max="50" value={turbineCount} onChange={(e) => setTurbineCount(parseInt(e.target.value))} className="w-full h-2 bg-white/10 rounded-full appearance-none cursor-pointer accent-purple-500" /></div>
+            <div><label className="block text-xs text-gray-400 mb-2">Area: <span className="text-green-400 font-medium">{areaSize} m²</span></label><input type="range" min="100" max="1000" step="50" value={areaSize} onChange={(e) => setAreaSize(parseInt(e.target.value))} className="w-full h-2 bg-white/10 rounded-full appearance-none cursor-pointer accent-green-500" /></div>
+            <div className="bg-white/5 rounded-lg p-3 text-center border border-white/10"><p className="text-xs text-gray-400">Predicted Power</p><p className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-purple-400">{predictedPower.toLocaleString()}</p><p className="text-xs text-gray-500">kW</p></div>
+          </div>
+        </div>
+
+
+        {/* HiveMQ Unity Simulator */}
+        <div className="bg-gradient-to-r from-green-500/10 to-emerald-500/10 backdrop-blur-sm rounded-xl p-4 border border-green-500/20">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-semibold text-white flex items-center gap-2">
+              <Radio className="w-4 h-4 text-green-400" />
+              Unity Live Feed (HiveMQ)
+            </h2>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                
+                <div className={`w-2 h-2 rounded-full ${mqttStatus === 'connected' || mqttStatus === 'sent' ? 'bg-green-400' : mqttStatus === 'connecting' || mqttStatus === 'sending' ? 'bg-yellow-400 animate-pulse' : mqttStatus === 'error' ? 'bg-red-400' : 'bg-gray-500'}`} />
+                <span className="text-xs text-gray-400">
+                  {mqttStatus === 'connected' ? 'Connected' : mqttStatus === 'connecting' ? 'Connecting...' : mqttStatus === 'sending' ? 'Sending...' : mqttStatus === 'sent' ? 'Sent!' : mqttStatus === 'error' ? 'Error' : 'Disconnected'}
+                </span>
+              </div>
+              {mqttStatus === 'disconnected' || mqttStatus === 'error' ? (
+                <button onClick={connectMQTT} className="px-3 py-1 bg-green-500/20 hover:bg-green-500/30 text-green-400 rounded-lg text-xs transition-all">Connect</button>
+              ) : mqttStatus !== 'connecting' && (
+                <button onClick={disconnectMQTT} className="px-3 py-1 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-xs transition-all">Disconnect</button>
+              )}
+            </div>
+          </div>
+          
+          {connectionError && (
+            <div className="mb-4 p-2 bg-red-500/20 border border-red-500/30 rounded-lg text-red-400 text-xs flex items-center gap-2">
+              <AlertCircle className="w-3 h-3" />
+              {connectionError}
+            </div>
+          )}
+          
+          <div className="grid md:grid-cols-5 gap-4">
+            <div>
+              <label className="block text-xs text-gray-400 mb-2">Wind Speed: <span className="text-green-400 font-medium">{mqttWindSpeed} m/s</span></label>
+              <input type="range" min="0" max="25" step="0.5" value={mqttWindSpeed} onChange={(e) => setMqttWindSpeed(parseFloat(e.target.value))} className="w-full h-2 bg-white/10 rounded-full appearance-none cursor-pointer accent-green-500" />
+              <div className="flex justify-between text-xs text-gray-500 mt-1"><span>0</span><span>25</span></div>
+            </div>
+            
+            <div>
+              <label className="block text-xs text-gray-400 mb-2">Wind Direction: <span className="text-emerald-400 font-medium">{mqttWindDirection}° ({getDirectionLabel(mqttWindDirection)})</span></label>
+              <input type="range" min="0" max="359" step="1" value={mqttWindDirection} onChange={(e) => setMqttWindDirection(parseInt(e.target.value))} className="w-full h-2 bg-white/10 rounded-full appearance-none cursor-pointer accent-emerald-500" />
+              <div className="flex justify-between text-xs text-gray-500 mt-1"><span>N</span><span>S</span><span>N</span></div>
+            </div>
+            
+            <div className="flex items-center justify-center">
+              <div className="relative w-16 h-16">
+                <div className="absolute inset-0 rounded-full border-2 border-white/20" />
+                <div className="absolute inset-2 rounded-full bg-white/5 flex items-center justify-center">
+                  <Navigation className="w-6 h-6 text-green-400 transition-transform duration-300" style={{ transform: `rotate(${mqttWindDirection}deg)` }} />
+                </div>
+                <span className="absolute -top-1 left-1/2 -translate-x-1/2 text-xs text-gray-500">N</span>
+                <span className="absolute top-1/2 -right-1 -translate-y-1/2 text-xs text-gray-500">E</span>
+                <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 text-xs text-gray-500">S</span>
+                <span className="absolute top-1/2 -left-1 -translate-y-1/2 text-xs text-gray-500">W</span>
+              </div>
+            </div>
+            
+            <div className="bg-white/5 rounded-lg p-3 text-center border border-white/10">
+              <p className="text-xs text-gray-400">Est. Power Output</p>
+              <p className="text-xl font-bold text-green-400">{Math.round(predictPower(mqttWindSpeed)).toLocaleString()}</p>
+              <p className="text-xs text-gray-500">kW (single turbine)</p>
+            </div>
+            
+            <div className="flex flex-col justify-center">
+              <button onClick={sendToHiveMQ} disabled={mqttStatus !== 'connected' && mqttStatus !== 'sent'}
+                className={`flex items-center justify-center gap-2 px-4 py-3 rounded-lg font-medium transition-all ${mqttStatus === 'sending' ? 'bg-yellow-500/20 text-yellow-400' : mqttStatus === 'sent' ? 'bg-green-500/30 text-green-400' : mqttStatus === 'connected' ? 'bg-green-500 hover:bg-green-600 text-white' : 'bg-gray-500/20 text-gray-500 cursor-not-allowed'}`}>
+                <Send className="w-4 h-4" />
+                {mqttStatus === 'sending' ? 'Sending...' : mqttStatus === 'sent' ? 'Sent ✓' : 'Send to Unity'}
+              </button>
+              <p className="text-xs text-gray-500 text-center mt-2">Topic: {MQTT_CONFIG.topic}</p>
+            </div>
+          </div>
+          
+          {lastSentData && (
+            <div className="mt-4 p-3 bg-black/20 rounded-lg border border-white/10">
+              <p className="text-xs text-gray-400 mb-1">Last Sent Payload:</p>
+              <code className="text-xs text-green-400 font-mono break-all">{JSON.stringify(lastSentData)}</code>
+            </div>
+          )}
+        </div>
+      </main>
+    </div>
+  );
+};
+
+
+export default function App() {
+  const [user, setUser] = useState(null);
+  return user ? <Dashboard user={user} onLogout={() => setUser(null)} /> : <LoginPage onLogin={setUser} />;
+}

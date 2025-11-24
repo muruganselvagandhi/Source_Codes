@@ -1,0 +1,28 @@
+{
+  "users": [
+    {
+      "id": 1,
+      "username": "admin",
+      "password": "$2a$10$lmgJlY9uqxxrs1M1kDOWr.rn5B4RHaS6DZbg.Ih9rmrxyGHCJjmz.",
+      "email": "admin@windfarm.com",
+      "role": "admin",
+      "createdAt": "2024-01-01T00:00:00.000Z"
+    },
+    {
+      "id": 2,
+      "username": "user",
+      "password": "$2a$10$NEpSVXSzg4ikSnIl9m61lOK.D38ZMhSjDTl.cnxpP5CzOV6Oz7D6y",
+      "email": "user@windfarm.com",
+      "role": "user",
+      "createdAt": "2024-01-01T00:00:00.000Z"
+    },
+    {
+      "id": 3,
+      "username": "ara",
+      "password": "$2a$10$dR4K.4sKb4.GnHY1PTbp8elpksyAzl/ypAijNFcPxX3RWl5n0y9yu",
+      "email": "aaa@gmail.com",
+      "role": "user",
+      "createdAt": "2025-11-23T03:10:17.881Z"
+    }
+  ]
+}
